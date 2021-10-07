@@ -57,7 +57,7 @@ Outputs:
 ![SEClustering](https://raw.githubusercontent.com/deepomicslab/SEAT/main/readme_fig1.png)
 
 ### Run `SEAT.SEAT`
-This example shows the usage of `SEAT.SEAT`. The functionality of `SEAT.SEAT` is the same with `SEAT.SEClustering` except `SEAT.SEAT` automatically pruning the best cluster number `k` associated with the minimal structural entropy in the structure entropy agglomerative tree.
+This example shows the usage of `SEAT.SEAT`. The functionality of `SEAT.SEAT` is the same with `SEAT.SEClustering` except `SEAT.SEAT` automatically tuning the best cluster number `k` associated with the minimal structural entropy in the structure entropy agglomerative tree.
 
 ```Python
 from sklearn.neighbors import kneighbors_graph
@@ -75,8 +75,8 @@ seat = SEAT()
 seat.fit_predict(graph)
 print('The best k is:', seat.optimal_k)
 print('SE clustering result: \n', seat.labels_)
-print('Candates k for pruning: \n', seat.ks)
-print('SE score for pruning k: \n', seat.se_scores)
+print('Candidate k for tuning: \n', seat.ks)
+print('SE score for tuning k: \n', seat.se_scores)
 
 # plot the structure entropy agglomerative tree
 label = seat.labels_
@@ -112,7 +112,7 @@ Attributes:
 > + `optimal_k`: The best cluster number `k` associated with the minimal structural entropy in the structure entropy agglomerative tree.
 > + `labels_`: Cluster labels for the `optimal_k`.
 > + `Z_`: The linkage matrix used to plot the dendrogram.
-> + `ks`: The list of candicate `k` for pruning.
+> + `ks`: The list of candicate `k` for tuning.
 > + `se_scores`: The structure entropy score for each `k`.
 
 ## Update
