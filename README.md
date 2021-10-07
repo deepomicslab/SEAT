@@ -6,8 +6,8 @@ The SEAT packages provides sklearn style API for structure entropy based cluster
 
 
 ## Prerequisite
-+ numpy
-+ sklearn
++ numpy>=1.21
++ scikit-learn>=0.23.1
 
 
 ## Install
