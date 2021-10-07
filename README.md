@@ -12,7 +12,7 @@ The SEAT packages provides sklearn style API for structure entropy based cluster
 
 ## Install
 ```shell
-pip install seat
+pip install pyseat
 ```
 
 ## Quick Start
@@ -27,27 +27,25 @@ import numpy as np
 import seaborn as sns
 from matplotlib import pyplot as plt
 
-from SEAT import SEClustering
+from pyseat.SEAT import SEAT
 
 X = np.array([[1, 1], [1, 2], [10, 11],
               [9, 12], [5, 7], [6, 6]])
 graph = kneighbors_graph(X, n_neighbors=3).toarray()
 
-secluster1 = SEClustering(n_clusters=3)
-secluster1.fit(graph)
-print('SE Clustering result for k=3: \n', secluster1.labels_)
-
-secluster2 = SEClustering(n_clusters=[2,3])
-secluster2.fit(graph)
-print('SE Clustering result for k=[2,3]: \n', secluster2.labels_)
-
+seat = SEAT()
+seat.fit_predict(graph)
+print('The best k is:', seat.optimal_k)
+print('SE clustering result: \n', seat.labels_)
+print('Candates k for pruning: \n', seat.ks)
+print('SE score for pruning k: \n', seat.se_scores)
 
 # plot the structure entropy agglomerative tree
-label = secluster1.labels_
+label = seat.labels_
 label_colors = dict(zip(set(label), sns.color_palette('Spectral', len(set(label)))))
 label_colors = [label_colors[l] for l in label]
 g = sns.clustermap(X,
-                   row_linkage=secluster1.Z_,
+                   row_linkage=seat.Z_,
                    col_cluster=False,
                    row_colors=label_colors,
                    cmap='YlGnBu')
@@ -65,7 +63,7 @@ import numpy as np
 import seaborn as sns
 from matplotlib import pyplot as plt
 
-from SEAT import SEAT
+from pyseat.SEAT import SEAT
 
 X = np.array([[1, 1], [1, 2], [10, 11],
               [9, 12], [5, 7], [6, 6]])
@@ -117,4 +115,4 @@ Attributes:
 
 ## Update
 
-+ `v0.0.1`: realsed at 2021/10/07, the initial version seat.
++ `v0.0.1.1`: realsed at 2021/10/07, the initial version seat.
