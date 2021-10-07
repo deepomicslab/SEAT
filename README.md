@@ -114,3 +114,7 @@ Attributes:
 > + `Z_`: The linkage matrix used to plot the dendrogram.
 > + `ks`: The list of candicate `k` for pruning.
 > + `se_scores`: The structure entropy score for each `k`.
+
+## Update
+
++ `v0.0.1`: realsed at 2021/10/07, the initial version seat.
