@@ -27,25 +27,27 @@ import numpy as np
 import seaborn as sns
 from matplotlib import pyplot as plt
 
-from pyseat.SEAT import SEAT
+from pyseat.SEAT import SEClustering
 
 X = np.array([[1, 1], [1, 2], [10, 11],
               [9, 12], [5, 7], [6, 6]])
 graph = kneighbors_graph(X, n_neighbors=3).toarray()
 
-seat = SEAT()
-seat.fit_predict(graph)
-print('The best k is:', seat.optimal_k)
-print('SE clustering result: \n', seat.labels_)
-print('Candates k for pruning: \n', seat.ks)
-print('SE score for pruning k: \n', seat.se_scores)
+secluster1 = SEClustering(n_clusters=3)
+secluster1.fit(graph)
+print('SE Clustering result for k=3: \n', secluster1.labels_)
+
+secluster2 = SEClustering(n_clusters=[2,3])
+secluster2.fit(graph)
+print('SE Clustering result for k=[2,3]: \n', secluster2.labels_)
+
 
 # plot the structure entropy agglomerative tree
-label = seat.labels_
+label = secluster1.labels_
 label_colors = dict(zip(set(label), sns.color_palette('Spectral', len(set(label)))))
 label_colors = [label_colors[l] for l in label]
 g = sns.clustermap(X,
-                   row_linkage=seat.Z_,
+                   row_linkage=secluster1.Z_,
                    col_cluster=False,
                    row_colors=label_colors,
                    cmap='YlGnBu')
