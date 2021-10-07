@@ -53,7 +53,8 @@ g = sns.clustermap(X,
                    cmap='YlGnBu')
 ```
 Outputs:
-![]('https://github.com/deepomicslab/SEAT/raw/main/readme_fig1.png')
+
+![SEClustering](https://raw.githubusercontent.com/deepomicslab/SEAT/main/readme_fig1.png)
 
 ### Run `SEAT.SEAT`
 This example shows the usage of `SEAT.SEAT`. The functionality of `SEAT.SEAT` is the same with `SEAT.SEClustering` except `SEAT.SEAT` automatically pruning the best cluster number `k` associated with the minimal structural entropy in the structure entropy agglomerative tree.
@@ -88,27 +89,28 @@ g = sns.clustermap(X,
                    cmap='YlGnBu')
 ```
 Outputs:
-![]('https://github.com/deepomicslab/SEAT/raw/main/readme_fig2.png')
+
+![SEAT](https://raw.githubusercontent.com/deepomicslab/SEAT/main/readme_fig2.png)
 
 ## class API
-###  ```class SEAT.SEClustering```
+###  `class SEAT.SEClustering`
 Parameters:
-> + ```n_clusters```: The number of clusters to find, must be an integer or a list of integer.
-> + ```affinity```: Metric used to compute the similarity linkage. Currently, only “precomputed” available. If “precomputed”, a similarity matrix is needed as input for the fit method.
+> + `n_clusters`: The number of clusters to find, must be an integer or a list of integer.
+> + `affinity`: Metric used to compute the similarity linkage. Currently, only “precomputed” available. If “precomputed”, a similarity matrix is needed as input for the fit method.
 
 Attributes:
-> + ```labels_```: Cluster labels for each point.
-> + ```Z_```: The linkage matrix used to plot the dendrogram.
+> + `labels_`: Cluster labels for each point.
+> + `Z_`: The linkage matrix used to plot the dendrogram.
 
-###  ```class SEAT.SEAT```
+###  `class SEAT.SEAT`
 Parameters:
-> + ```min_k```: The minimal number of clusters for searching, default 2.
-> + ```max_k```: The maximal number of clusters for searching, default 10 or the number of submodules in the tree.
-> + ```affinity```: Metric used to compute the similarity linkage. Currently, only “precomputed” available. If “precomputed”, a similarity matrix is needed as input for the fit method.
+> + `min_k`: The minimal number of clusters for searching, default 2.
+> + `max_k`: The maximal number of clusters for searching, default 10 or the number of submodules in the tree.
+> + `affinity`: Metric used to compute the similarity linkage. Currently, only “precomputed” available. If “precomputed”, a similarity matrix is needed as input for the fit method.
 
 Attributes:
-> + ```optimal_k```: The best cluster number `k` associated with the minimal structural entropy in the structure entropy agglomerative tree.
-> + ```labels_```: Cluster labels for the `optimal_k`.
-> + ```Z_```: The linkage matrix used to plot the dendrogram.
-> + ```ks``: The list of candicate `k` for pruning.
-> + ```se_scores```: The structure entropy score for each `k`.
+> + `optimal_k`: The best cluster number `k` associated with the minimal structural entropy in the structure entropy agglomerative tree.
+> + `labels_`: Cluster labels for the `optimal_k`.
+> + `Z_`: The linkage matrix used to plot the dendrogram.
+> + `ks`: The list of candicate `k` for pruning.
+> + `se_scores`: The structure entropy score for each `k`.
