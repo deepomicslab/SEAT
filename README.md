@@ -65,5 +65,5 @@ Attributes:
 
 ## Update
 
-+ `v0.0.1.1`: realsed at 2021/04/20, the manuscript version.
++ `v0.0.1.2`: realsed at 2021/04/20, the manuscript version.
 + `v0.0.1.1`: realsed at 2021/10/07, the initial version.
