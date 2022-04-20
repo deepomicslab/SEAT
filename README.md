@@ -21,7 +21,7 @@ import numpy as np
 import seaborn as sns
 from matplotlib import pyplot as plt
 
-from pyseat.SEAT import SEAT
+from SEAT import SEAT
 
 X = np.array([[1, 1], [1, 2], [10, 11],
               [9, 12], [5, 7], [6, 6]])
