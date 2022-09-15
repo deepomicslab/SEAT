@@ -90,7 +90,7 @@ Outputs:
 
 ![toy_embedding](https://raw.githubusercontent.com/deepomicslab/SEAT/main/demo/toy_embedding.png)
 
-## Demo Applications
+## SEAT Applications
 
 ### Incorporating cell hierarchy to decipher the functional diversity of single cells
 
