@@ -1,69 +1,201 @@
 # SEAT
 Structure Entropy hierArchy deTection
 
-The SEAT packages provides sklearn style API for structure entropy based hierarchy detection and clustering.
+The SEAT packages provides sklearn style API for structure entropy based hierarchy detection and embedding.
 
 
-## Prerequisite
-+ numpy>=1.21
-+ scikit-learn>=0.23.1
-
+## Install
+```shell
+pip install pyseat
+```
 
 ## Quick Start
 
-
 ### Run `SEAT.SEAT`
-This example shows the usage of `SEAT.SEAT`. The API is similar to clustering algorithms provided in `sklearn.cluster` except `SEAT.SEAT` automatically tuning the best cluster number `k` associated with the minimal structural entropy in the structure entropy tree.
+This example shows the usage of `pyseat.SEAT`. The functionality of `pyseat.SEAT` is the same with `sklearn.cluster` except `pyseat.SEAT` automatically pruning the best cluster number `k` associated with the minimal structural entropy in the structure entropy hierarchy. It also works in predefined-k clustering settings.
 
 ```Python
 from sklearn.neighbors import kneighbors_graph
 import numpy as np
 import seaborn as sns
+from sklearn import datasets
 from matplotlib import pyplot as plt
 
-from SEAT import SEAT
+from pyseat.SEAT import SEAT
 
-X = np.array([[1, 1], [1, 2], [10, 11],
-              [9, 12], [5, 7], [6, 6]])
-graph = kneighbors_graph(X, n_neighbors=3).toarray()
 
-seat = SEAT()
-seat.fit_predict(graph)
+X, labels = datasets.make_blobs(n_samples=1000, random_state=8)
+
+seat = SEAT(affinity="gaussian_kernel",
+            sparsification="knn_neighbors",
+            objective="SE",
+            strategy="bottom_up")
+seat.fit_predict(X)
+
+# seat output
+print('--------------------------')
 print('The best k is:', seat.optimal_k)
-print('SE clustering result: \n', seat.labels_)
-print('Candidate k for tuning: \n', seat.ks)
+print('SEAT optimal clustering result: \n', seat.labels_)
+print('Candicate k for tuning: \n', seat.ks)
 print('SE score for tuning k: \n', seat.se_scores)
+print('SEAT clustering result for different k: \n', seat.ks_clusters)
+print('SEAT club labels: \n', seat.clubs)
+print('SEAT orders: \n', seat.order)
 
-# plot the structure entropy agglomerative tree
+
+plt.title('Original data, colored by labels')
+plt.scatter(X[:, 0], X[:, 1], 
+                s=1,
+                c=labels
+               )
+plt.show()
+
+# plot the structure entropy hierarchy and clustering result
 label = seat.labels_
 label_colors = dict(zip(set(label), sns.color_palette('Spectral', len(set(label)))))
 label_colors = [label_colors[l] for l in label]
-g = sns.clustermap(X,
+
+sns.clustermap(X,
                    row_linkage=seat.Z_,
                    col_cluster=False,
                    row_colors=label_colors,
                    cmap='YlGnBu')
+plt.title("After SEAT clustering and ordering")
+plt.show()
 ```
 Outputs:
 
-![SEAT](https://raw.githubusercontent.com/deepomicslab/SEAT/main/readme_fig2.png)
+![SEAT](https://raw.githubusercontent.com/deepomicslab/SEAT/main/demo/toy_hiearachy.png)
+
+### Run `SEAT.HierachicalEmbedding`
+This example shows the usage of `pyseat.HierachicalEmbedding`.
+
+```python
+import pandas as pd
+from pyseat.HierachicalEmbedding import HierachicalEmbedding
+
+y = pd.DataFrame({
+    'Global': [1]*len(seat.labels_),
+    'Subpopulation': seat.labels_,
+    'Club': seat.clubs
+})
+
+HE = HierachicalEmbedding(device='cpu', n_epochs=200, init='random', random_state=0,
+                          min_dist=0.1,
+                          n_components=2)  
+
+embed = HE.fit_transform(seat.aff_m, y, thetas=[1, 1, 1])
+print('SEAT hierachical embedding: ', embed.shape)
+HE.viz_fit()
+```
+Outputs:
+![SEAT](https://raw.githubusercontent.com/deepomicslab/SEAT/main/demo/toy_embedding.png)
+
+## Demo Applications
+
+### Detecting and visualizing the cell subpopulation and club on cell line mixture p3cl dataset
+
+[Link text Here](https://link-url-here.org) shows how to use SEAT to detect and visualize the cell subpopulation and club on cell line mixture p3cl dataset
+
+![SEAT](https://raw.githubusercontent.com/deepomicslab/SEAT/main/demo/auto-k.png)
+
+![SEAT](https://raw.githubusercontent.com/deepomicslab/SEAT/main/demo/predefined.png)
+
+
+### Comparing different auto-k and predefined-k clustering algorithms with SEAT on toy datasets
+
+[Link text Here](https://link-url-here.org) shows characteristics of different
+auto-k and predefined-k clustering algorithms on datasets that are "interesting"
+but still in 2D. With the exception of the last dataset,
+the parameters of each of these dataset-algorithm pairs
+has been tuned to produce good clustering results. Some
+algorithms are more sensitive to parameter values than
+others.
+
+The last dataset is an example of a 'null' situation for
+clustering: the data is homogeneous, and there is no good
+clustering. For this example, the null dataset uses the
+same parameters as the dataset in the row above it, which
+represents a mismatch in the parameter values and the
+data structure.
+
+While these examples give some intuition about the
+algorithms, this intuition might not apply to very high
+dimensional data.
+
+![SEAT](https://raw.githubusercontent.com/deepomicslab/SEAT/main/demo/p3cl_hiearachy.png)
+
+![SEAT](https://raw.githubusercontent.com/deepomicslab/SEAT/main/demo/p3cl_embedding.png)
 
 ## class API
 
 ###  `class SEAT.SEAT`
 Parameters:
-> + `min_k`: The minimal number of clusters for searching, default 2.
-> + `max_k`: The maximal number of clusters for searching, default 10 or the number of submodules in the tree.
-> + `affinity`: Metric used to compute the similarity linkage. Currently, only “precomputed” available. If “precomputed”, a similarity matrix is needed as input for the fit method.
+> + `min_k`: The minimal number of clusters for searching. Default: 2.
+> + `max_k`: The maximal number of clusters for searching. Default: 10 or the number of submodules in the tree.
+> + `affinity`: Method used to compute the dense similarity graph. Currently, "precomputed", "gaussian_kernel", "linear_kernel", "cosine_similarity", "knn_neighbors_from_X", and "laplacian_kernel" are available. If "precomputed", a similarity matrix is needed as input for the fit method. Default: gaussian_kernel.
+> + `kernel_gamma`: The `gamma` hyperparameter for kernel based affinity function if applicable. Default: the standard devidation of input `X`.
+> + `sparsification`: Method used to construct the sparse similarity graph. Currently, "affinity", "precomputed", "knn_neighbors", "knn_neighbors_from_X" are available. "affinity" means the sparse graph is the same with the dense graph. If "precomputed", a similarity matrix is needed as input for the fit method. "knn_neighbors" means the sparse graph is constructed from the dense graph use kNN sparsification. "knn_neighbors_from_X" means the sparse graph is constructed from intpu data `X` with kNN. Default: knn_neighbors.
+> + `n_neighbors`: The number of neighbors used in kNN if applicable. Default: 10.
+> + `objective`: The metric to measure the global uncertainty of a graph. Default: SE.
+> + `strategy`: The hirearachy building strategy, "bottom_up" or "top_down". Default: bottom_up.
+
+Methods:
+> + `fit(X)`: Fit `X` for structure entropy hierahcy detection from features, or distance matrix. 
+> + - `X`: array, shape (n_samples, n_features) or (n_samples, n_samples). If the metric is "precomputed", `X` must be a square distance matrix. Otherwise it contains a sample per row.
+
+> + `fit_predict(X)`: Fit `X` for structure entropy hierahcy detection from features, or distance matrix, and return the auto-k clustering assignment. 
+> + - `X`: array, shape (n_samples, n_features) or (n_samples, n_samples). If the metric is "precomputed", `X` must be a square distance matrix. Otherwise it contains a sample per row.
 
 Attributes:
-> + `optimal_k`: The best cluster number `k` associated with the minimal structural entropy in the structure entropy agglomerative tree.
+> + `optimal_k`: The best cluster number `k` associated with the minimal structural entropy in the structure entropy hirearachy.
 > + `labels_`: Cluster labels for the `optimal_k`.
-> + `Z_`: The linkage matrix used to plot the dendrogram.
+> + `Z_`: The linkage matrix used to plot the hirearachy dendrogram.
 > + `ks`: The list of candicate `k` for tuning.
 > + `se_scores`: The structure entropy score for each `k`.
+> + `ks_clusters`: The clustering result for each `k`.
+> + `clubs`: The clustering result at club level.
+> + `order`: The datapoint 1D order from obtained hirearachy.
+
+###  `class SEAT.HierachicalEmbedding`
+Parameters:
+> + `affinity`: Method used to compute the dense similarity graph. Currently, "precomputed" is available. Please input the dense graph from `seat.aff_m` for the fit method.
+> + `init`: The method of initialization. Currently, "spectral" and "random" are available.
+> + `device`: "cpu" or "gpu" for training. Default: "cpu"
+> + `n_epochs`: The number of epochs for training. Default: when datapoints no less than 10000, n_epochs is 1000 and 500 for spectral and random initalization; when datapoints larger than 10000, n_epochs is 600 and 200 for spectral and random initalization. 
+> + `learning_rate`: The learning rate for training. Default: 1e-2.
+> + `random_state`: The metric to measure the global uncertainty of a graph. Default: None.
+> + `min_dist`: Hyperparameter to controls how tightly to pack points together. Default: 0.1.
+> + `spread`: Hyperparameter to controls how tightly to pack points together. Default: 1.
+
+Methods:
+> + `fit_transform(X, y, thetas=[0.0, 0.2, 0.8])`: Fit `X` into an embedded space and return that transformed output. 
+> + - `X`: array, shape (n_samples, n_samples). `X = seat.aff_m`.
+> + - `y`: array or dataframe, shape (n_samples, n_labels). Differnt resolution of target labels for supervised hierachical embedding.
+> + - `thetas`: list, shape(n_labels). The training weight for different label resolutions.
+
+Attributes:
+> + `viz_fit(n_row=3, n_col=None, fig_width=5, fn=None)`: The visualization of the training process.
+> + - `n_row`: integer. The number of rows for subplots.
+> + - `n_col`: integer. The number of columns for subplots.
+> + - `fig_width`: integer. The figure width. 
+> + - `fn`: file path. The file path to save the visualization.
+
+## Citation
+If you are using SEAT in your project, please cite:
+
+Chen, Lingxi, and Shuaicheng Li. "Incorporating cell hierarchy to decipher the functional diversity of single cells." *bioRxiv* (2022).
+
+```shell
+@article{chen2022incorporating,
+  title={Incorporating cell hierarchy to decipher the functional diversity of single cells},
+  author={Chen, Lingxi and Li, Shuaicheng},
+  journal={bioRxiv},
+  year={2022},
+  publisher={Cold Spring Harbor Laboratory}
+}
+```
 
 ## Update
-
 + `v0.0.1.2`: realsed at 2021/04/20, the manuscript version.
 + `v0.0.1.1`: realsed at 2021/10/07, the initial version.
