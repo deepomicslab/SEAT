@@ -152,7 +152,7 @@ Attributes:
 Parameters:
 > + `affinity`: Method used to compute the dense similarity graph. Currently, "precomputed" is available. Please input the dense graph from `seat.aff_m` for the fit method.
 > + `init`: The method of initialization. Currently, "spectral" and "random" are available.
-> + `device`: "cpu" or "gpu" for training. Default: "cpu"
+> + `device`: "cpu" or "gpu" for training. Default: "cpu".
 > + `n_epochs`: The number of epochs for training. Default: when the number of datapoints is no less than 10000, n_epochs are 1000 and 500 for spectral and random initialization; when the number of datapoints is larger than 10000, n_epochs are 600 and 200 for spectral and random initialization. 
 > + `learning_rate`: The learning rate for training. Default: 1e-2.
 > + `random_state`: The metric to measure the global uncertainty of a graph. Default: None.
@@ -176,7 +176,7 @@ Attributes:
 
 If you are using SEAT in your project, please cite:
 
-[1] Chen, Lingxi, and Shuaicheng Li. "Incorporating cell hierarchy to decipher the functional diversity of single cells." *bioRxiv* (2022).
+[1] Chen, Lingxi, and Li, Shuaicheng. "Incorporating cell hierarchy to decipher the functional diversity of single cells." *bioRxiv* (2022).
 
 ```shell
 @article{chen2022incorporating,
