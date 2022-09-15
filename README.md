@@ -133,10 +133,10 @@ Parameters:
 
 Methods:
 > + `fit(X)`: Fit `X` for structure entropy hierahcy detection from features, or distance matrix. 
-> + - `X`: array, shape (n_samples, n_features) or (n_samples, n_samples). If the metric is "precomputed", `X` must be a square distance matrix. Otherwise, it contains a sample per row.
+>   - `X`: array, shape (n_samples, n_features) or (n_samples, n_samples). If the metric is "precomputed", `X` must be a square distance matrix. Otherwise, it contains a sample per row.
 
 > + `fit_predict(X)`: Fit `X` for structure entropy hierarchy detection from features or distance matrix, and return the auto-k clustering assignment. 
-> + - `X`: array, shape (n_samples, n_features) or (n_samples, n_samples). If the metric is "precomputed", `X` must be a square distance matrix. Otherwise, it contains a sample per row.
+>   - `X`: array, shape (n_samples, n_features) or (n_samples, n_samples). If the metric is "precomputed", `X` must be a square distance matrix. Otherwise, it contains a sample per row.
 
 Attributes:
 > + `optimal_k`: The best cluster number `k` associated with the minimal structural entropy in the structure entropy hierarchy.
@@ -161,16 +161,16 @@ Parameters:
 
 Methods:
 > + `fit_transform(X, y, thetas=[0.0, 0.2, 0.8])`: Fit `X` into an embedded space and return that transformed output. 
-> + - `X`: array, shape (n_samples, n_samples). `X = seat.aff_m`.
-> + - `y`: array or dataframe, shape (n_samples, n_labels). Different resolutions of target labels for supervised hierarchical embedding.
-> + - `thetas`: list, shape(n_labels). The training weight for different label resolutions.
+>   - `X`: array, shape (n_samples, n_samples). `X = seat.aff_m`.
+>   - `y`: array or dataframe, shape (n_samples, n_labels). Different resolutions of target labels for supervised hierarchical embedding.
+>   - `thetas`: list, shape(n_labels). The training weight for different label resolutions.
 
 Attributes:
 > + `viz_fit(n_row=3, n_col=None, fig_width=5, fn=None)`: The visualization of the training process.
-> + - `n_row`: integer. The number of rows for subplots.
-> + - `n_col`: integer. The number of columns for subplots.
-> + - `fig_width`: integer. The figure width. 
-> + - `fn`: file path. The file path to save the visualization.
+>   - `n_row`: integer. The number of rows for subplots.
+>   - `n_col`: integer. The number of columns for subplots.
+>   - `fig_width`: integer. The figure width. 
+>   - `fn`: file path. The file path to save the visualization.
 
 ## Reference and Citation
 
