@@ -120,7 +120,7 @@ SEAT against predefined-k clustering tools:
 
 ## Class API
 
-###  `class SEAT.SEAT`
+###  `class pySEAT.SEAT`
 Parameters:
 > + `min_k`: The minimal number of clusters for searching. Default: 2.
 > + `max_k`: The maximal number of clusters for searching. Default: 10 or the number of submodules in the tree.
@@ -148,7 +148,7 @@ Attributes:
 > + `clubs`: The clustering result at the club level.
 > + `order`: The datapoint 1D order from the obtained hierarchy.
 
-###  `class SEAT.HierachicalEmbedding`
+###  `class pySEAT.HierachicalEmbedding`
 Parameters:
 > + `affinity`: Method used to compute the dense similarity graph. Currently, "precomputed" is available. Please input the dense graph from `seat.aff_m` for the fit method.
 > + `init`: The method of initialization. Currently, "spectral" and "random" are available.
