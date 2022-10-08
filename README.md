@@ -70,7 +70,7 @@ Outputs:
 
 SEAT supports kNN outlier detection by setting `outlier_detection = knn_neighbors`. The associated hyperparameter `outlier_percentile` defines that data points with average knn distance exceeding a specific percentile (default: 0.95) are considered as outliers. [run_outlier_toy.ipynb](https://github.com/deepomicslab/SEAT/blob/main/demo/run_outlier_toy.ipynb) compared the clustering performance with and without outlier detection with varying `n_neighbors` and `outlier_percentile` combinations.
 
-![agglo_outlier_detection](https://raw.githubusercontent.com/deepomicslab/SEAT/main/demo/agglo_outlier_detection.png)
+![agglo_toy_outlier_detection](https://raw.githubusercontent.com/deepomicslab/SEAT/main/demo/agglo_toy_outlier_detection.png)
 
 ### Run `pyseat.HierachicalEmbedding`
 This example shows the usage of `pyseat.HierachicalEmbedding`.
