@@ -68,7 +68,7 @@ Outputs:
 
 ![toy_hiearachy](https://raw.githubusercontent.com/deepomicslab/SEAT/main/demo/toy_hiearachy.png)
 
-SEAT supports kNN outlier detection by setting `outlier_detection = knn_neighbors`. The associated hyperparameter `outlier_percentile` defines that data points with average knn distance exceeding a specific percentile (default: 0.95) are considered as outliers. [run_outlier_toy.ipynb](https://github.com/deepomicslab/SEAT/blob/main/demo/run_outlier_toy.ipynb) compared the clustering performance with and without outlier detection with varying `n_neighbors` and `outlier_percentile` combinations.
+SEAT supports kNN outlier detection by setting `outlier_detection = knn_neighbors`. The outliers are assigned to label `-1`. The associated hyperparameter `outlier_percentile` defines that data points with average knn distance exceeding a specific percentile (default: 0.95) are considered as outliers. [run_outlier_toy.ipynb](https://github.com/deepomicslab/SEAT/blob/main/demo/run_outlier_toy.ipynb) compared the clustering performance with and without outlier detection with varying `n_neighbors` and `outlier_percentile` combinations. Here, the detected outliers are colored with black.
 
 ![agglo_toy_outlier_detection](https://raw.githubusercontent.com/deepomicslab/SEAT/main/demo/agglo_toy_outlier_detection.png)
 
