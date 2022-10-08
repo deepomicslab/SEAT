@@ -3,6 +3,10 @@
 The SEAT package provides sklearn style API for structure entropy based hierarchy detection and embedding.
 
 
+## Prerequisite 
+
+If you want to use the GPU to train the hierarchical embedding, please install the GPU version of PyTorch (https://pytorch.org/) in advance.
+
 ## Install
 ```shell
 pip install pyseat
@@ -63,6 +67,10 @@ plt.show()
 Outputs:
 
 ![toy_hiearachy](https://raw.githubusercontent.com/deepomicslab/SEAT/main/demo/toy_hiearachy.png)
+
+SEAT supports kNN outlier detection by setting `outlier_detection = knn_neighbors`. The associated hyperparameter `outlier_percentile` defines that data points with average knn distance exceeding a specific percentile (default: 0.95) are considered as outliers. [run_outlier_toy.ipynb](https://github.com/deepomicslab/SEAT/blob/main/demo/run_outlier_toy.ipynb) compared the clustering performance with and without outlier detection with varying `n_neighbors` and `outlier_percentile` combinations.
+
+![agglo_outlier_detection](https://raw.githubusercontent.com/deepomicslab/SEAT/main/demo/agglo_outlier_detection.png)
 
 ### Run `pyseat.HierachicalEmbedding`
 This example shows the usage of `pyseat.HierachicalEmbedding`.
@@ -130,6 +138,9 @@ Parameters:
 > + `n_neighbors`: The number of neighbors used in kNN if applicable. Default: 10.
 > + `objective`: The metric to measure the global uncertainty of a graph. Default: SE.
 > + `strategy`: The hierarchy building strategy, "bottom_up" or "top_down". Default: bottom_up.
+> + `outlier_detection`: The outlier detection strategy, "knn_neighbors" or "None". Default: None.
+> + `outlier_percentile`: The data points with average knn distance exceeding a specific percentile (default: 0.95) are considered as outliers. Default: 0.95.
+> + `verbose`: SEAT will output calculation information if verbose is True.
 
 Methods:
 > + `fit(X)`: Fit `X` for structure entropy hierahcy detection from features, or distance matrix. 
@@ -189,5 +200,6 @@ If you are using SEAT in your project, please cite:
 ```
 
 ## Update
-+ `v0.0.1.2`: released on 2021/04/20, the manuscript version.
++ `v0.0.1.3`: released on 2022/10/08, add outlier detection.
++ `v0.0.1.2`: released on 2022/04/20, the manuscript version.
 + `v0.0.1.1`: released on 2021/10/07, the initial version.
