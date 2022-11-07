@@ -50,6 +50,11 @@ plt.title('Original data, colored by labels')
 plt.scatter(X[:, 0], X[:, 1], s=1, c=labels)
 plt.show()
 
+oval_embed = seat.oval_embedding()
+plt.title('Oval plot, colored by labels')
+plt.scatter(oval_embed[:, 0], oval_embed[:, 1], s=1, c=labels)
+plt.show()
+
 # plot the structure entropy hierarchy and clustering result
 label = seat.labels_
 label_colors = dict(zip(set(label), sns.color_palette('Spectral', len(set(label)))))
