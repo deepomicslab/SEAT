@@ -44,7 +44,8 @@ print('SE score for tuning k: \n', seat.se_scores)
 print('SEAT clustering result for different k: \n', seat.ks_clusters)
 print('SEAT club labels: \n', seat.clubs)
 print('SEAT orders: \n', seat.order)
-
+print('SEAT order in oval plot: \n', seat.oval_embedding)
+print('SEAT hierarchy in newick format: \n', seat.newick)
 
 plt.title('Original data, colored by labels')
 plt.scatter(X[:, 0], X[:, 1], s=1, c=labels)
@@ -192,15 +193,14 @@ Attributes:
 
 If you are using SEAT in your project, please cite:
 
-[1] Chen, Lingxi, and Li, Shuaicheng. "Incorporating cell hierarchy to decipher the functional diversity of single cells." *bioRxiv* (2022).
+[1] Chen, Lingxi, and Li, Shuaicheng. "Incorporating cell hierarchy to decipher the functional diversity of single cells." *Nucleic Acids Research* (2022). https://doi.org/10.1093/nar/gkac1044
 
 ```shell
 @article{chen2022incorporating,
   title={Incorporating cell hierarchy to decipher the functional diversity of single cells},
   author={Chen, Lingxi and Li, Shuaicheng},
-  journal={bioRxiv},
-  year={2022},
-  publisher={Cold Spring Harbor Laboratory}
+  journal={Nucleic Acids Research},
+  year={2022}
 }
 ```
 
