@@ -193,14 +193,19 @@ Attributes:
 
 If you are using SEAT in your project, please cite:
 
-[1] Chen, Lingxi, and Li, Shuaicheng. "Incorporating cell hierarchy to decipher the functional diversity of single cells." *Nucleic Acids Research* (2022). https://doi.org/10.1093/nar/gkac1044
+[1] Chen, Lingxi, and Li, Shuai Cheng. "Incorporating cell hierarchy to decipher the functional diversity of single cells." *Nucleic Acids Research* (2022). https://doi.org/10.1093/nar/gkac1044
 
 ```shell
 @article{chen2022incorporating,
-  title={Incorporating cell hierarchy to decipher the functional diversity of single cells},
-  author={Chen, Lingxi and Li, Shuaicheng},
-  journal={Nucleic Acids Research},
-  year={2022}
+    author = {Chen, Lingxi and Li, Shuai Cheng},
+    title = "{Incorporating cell hierarchy to decipher the functional diversity of single cells}",
+    journal = {Nucleic Acids Research},
+    year = {2022},
+    month = {11},
+    issn = {0305-1048},
+    doi = {10.1093/nar/gkac1044},
+    url = {https://doi.org/10.1093/nar/gkac1044},
+    note = {gkac1044},
 }
 ```
 
