@@ -764,8 +764,8 @@ class SEAT(AgglomerativeClustering):
             raise ValueError("max_k should be an integer greater than 2."
                              " %s was provided." % str(self.max_k))
 
-        if self.affinity not in ['precomputed', 'knn_neighbors', 'T10', 'T16']:
-            raise ValueError("affinity should be precomputed, knn_neighbors, correlation."
+        if self.affinity not in ['precomputed', 'knn_neighbors']:
+            raise ValueError("affinity should be precomputed, knn_neighbors."
                              " %s was provided." % str(self.affinity))
 
         if self.strategy not in ['bottom_up', 'top_down']:
