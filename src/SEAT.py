@@ -2,7 +2,8 @@ import numpy as np
 from math import log2
 from scipy.cluster import hierarchy
 from sklearn.cluster import AgglomerativeClustering
-from sklearn.neighbors import kneighbors_graph
+from sklearn.neighbors import kneighbors_graph, NearestNeighbors
+from sklearn.metrics.pairwise import pairwise_kernels
 from scipy import sparse
 import heapq
 import itertools
@@ -14,142 +15,82 @@ import kmeans1d
 import scipy.linalg as la
 from scipy.sparse import csgraph
 import time
+import copy
+from itertools import compress
 
-
-from . import se
+from . import graph_metric
+import sys
+sys.setrecursionlimit(10000)
 
 
 class Node():
-    def __init__(self, graph_stats, node_id, parent=None, leaf=False,
-                 is_singleton=True,
+
+    def __init__(self, graph_stats, node_id, children, vs, parent=None,
+                 is_individual=True,
                  is_leaf=True):
         self.id = node_id
         self.parent = parent
-        self.leaf = leaf
-        self.is_singleton = is_singleton
-        self.is_leaf = is_leaf
-        self.children = []
-        self.left = 0
-        self.right = 0
-        self.g = 0.
-        self.g_log_V = 0.
-        self.V = 0.
-        self.log_V = 0.
-        self.V_log_V = 0.
-        self.s = 0.
-        self.se = 0.
-        self.vs = []
-        self.height = 0
+        self.children = children
+        self.vs = vs
         self.dist = 1
+        self.height = 0
+        self.is_individual = is_individual
+        self.is_leaf = is_leaf
+        self.split_se = np.nan
         self.graph_stats = graph_stats
 
-    def reset(self, parent=None):
-        self.init(parent)
+        self.g = 0.
+        self.s = 0.
+        self.V = 0.
+        self.V_log_V = 0.
+        self.d_log_d = 0.
+        self.se = 0.
 
-    def init(self, parent=None, setVertices=True):
-        if setVertices:
-            self.setVertices()
-        self.setV()
-        self.setS()
-        self.setG()
-        if parent:
-            self.setSE(parent)
-        else:
-            # root
-            self.se = 0
-        for c in self.children:
-            if (isinstance(c, Node)):
-                c.setSE(self)
-
-    def setVertices(self):
         M, m, d, log_d, d_log_d, vG, log_vG, sparse_m = self.graph_stats
-        vs = []
-        if self.leaf:
-            vs += self.children
-        else:
-            for c in self.children:
-                if isinstance(c, Node):
-                    vs += c.setVertices()
-                elif isinstance(c, int):
-                    vs.append(c)
-                else:
-                    raise TypeError('child can only be int or Node')
-        self.vs = vs
-        self.left = self.vs[0]
-        self.right = self.vs[-1]
-        return vs
-
-    def setS(self):
-        M, m, d, log_d, d_log_d, vG, log_vG, sparse_m = self.graph_stats
-        self.s = se.get_s(M, sparse_m, self.vs)
-
-    def setG(self):
-        self.g = self.V - self.s
-        self.g_log_V = self.g * self.log_V
-
-    def setV(self):
-        M, m, d, log_d, d_log_d, vG, log_vG, sparse_m = self.graph_stats
-        self.V = se.get_v(M, sparse_m, self.vs)
+        self.V = graph_metric.get_v(M, sparse_m, self.vs)
         self.log_V = log2(self.V)
         self.V_log_V = self.V * self.log_V
-
-    def setSE(self, parent):
-        M, m, d, log_d, d_log_d, vG, log_vG, sparse_m = self.graph_stats
-        self.se = se.get_se(vG, self.g, self.V, parent.V)
-
-    def increase_height(self, increment=1):
-        self.height += increment
-        for c in self.children:
-            if isinstance(c, Node):
-                c.increase_height(increment)
+        self.s = graph_metric.get_s(M, sparse_m, self.vs)
+        self.g = self.V - self.s
+        self.d_log_d = np.sum(d_log_d[self.vs])
+        if parent:
+            self.se = graph_metric.get_node_se(vG, self.g, self.V, parent.V)
+        else:
+            self.se = 0
 
     def merge(self, node_id, node1, node2, is_leaf=False):
-        if (node1.parent != node2.parent):
-            raise ValueError("parents are not the same")
-        node = Node(self.graph_stats, node_id, parent=self.id)
-        node.leaf = is_leaf
-        node.height = node1.height
-        node1.parent = node.id
-        node1.increase_height(1)
-        node2.parent = node.id
-        node2.increase_height(1)
         if is_leaf:
-            node.children = node1.children + node2.children
+            children = node1.children + node2.children
         else:
-            node.children.append(node1)
-            node.children.append(node2)
+            children = [node1, node2]
+        vs = node1.vs + node2.vs
+        node = Node(self.graph_stats, node_id, children, vs, parent=self)
+        if not is_leaf:
             node.dist = max(node1.dist, node2.dist) + 1
-        node.reset(self)
-        self.children.append(node)
-        if not self.delChild(node1):
-            raise("fail to delete child", node1)
-        if not self.delChild(node2):
-            raise("fail to delete child", node1)
+        node.is_leaf = is_leaf
+        node1.parent = node
+        node2.parent = node
+        self.children.append(node)  # self is root
         return node
 
-    def delChild(self, node):
-        idx = -1
-        for i, c in enumerate(self.children):
-            if c.id == node.id:
-                idx = i
-                break
-        if idx >= 0:
-            del self.children[idx]
-            return True
-        return False
+    def __repr__(self):
+        return 'id:{}'.format(self.id)
 
 
 class pySETree():
 
-    def __init__(self, aff_m, min_k=2, max_k=10,
-                 max_g_ratio=0,
-                 objective='structure_entropy',
-                 strategy='top_down'):
-        self.max_g_ratio = max_g_ratio
+    def __init__(self, aff_m, knn_m, min_k=2, max_k=10,
+                 objective='SE',
+                 strategy='top_down',
+                 split_se_cutoff=0.05,
+                 verbose=False
+                 ):
         self.strategy = strategy
         self.objective = objective
         self.min_k = min_k
         self.max_k = max_k
+        self.split_se_cutoff = split_se_cutoff
+        self.verbose = verbose
 
         self.vertex_num = aff_m.shape[0]
         if self.max_k > self.vertex_num:
@@ -163,70 +104,76 @@ class pySETree():
             self.node_id = -2
         self.node_list = {}
 
-        self.affinity_m = aff_m
-        self.graph_stats = self.graph_stats_init(aff_m)
+        self.aff_m = aff_m
+        self.knn_m = knn_m
+        self.G = nx.from_numpy_matrix(knn_m)
 
-    def graph_stats_init(self, aff_m):
-        M = aff_m
+        self.knn_graph_stats = self.graph_stats_init(knn_m)
+        self.aff_graph_stats = self.graph_stats_init(aff_m)
+
+    def graph_stats_init(self, sym_m):
+        M = sym_m
         np.fill_diagonal(M, 0)
-        d = None
+        d = np.sum(M, 1) - M.diagonal()
         if np.any(d == 0):
             M += 1e-3
             np.fill_diagonal(M, 0)
-            d = None
-        log_d = None
-        d_log_d = None
+            d = np.sum(M, 1) - M.diagonal()
+        log_d = np.log2(d)
+        d_log_d = np.multiply(d, log_d)
 
-        sparce_m = sparse.csr_matrix(aff_m)
+        sparce_m = sparse.csr_matrix(sym_m)
         m = sparce_m.sum() / 2
         vG = sparce_m.sum()
         log_vG = log2(vG)
 
-        graph_stats = M, m, d, log_d, d_log_d, vG, log_vG, sparce_m
+        graph_stats = M, m, d, log_d, d_log_d, vG, log_vG, sparce_m   # ???
         return graph_stats
 
-    def get_node_id(self, increment=True):
+    def update_node_id(self, increment=True):
         if increment:
             self.node_id += 1
         else:
             self.node_id -= 1
         return self.node_id
 
-    def build_tree(self):
-        M, m, d, log_d, d_log_d, vG, log_vG, sparce_m = self.graph_stats
-        root = Node(self.graph_stats, self.get_node_id())
-        self.node_list[root.id] = root
-        root.V = 2.*m
+    def get_current_node_id(self):
+        return self.node_id
 
-        print(self.strategy)
+    def build_tree(self):
+        M, m, d, log_d, d_log_d, vG, log_vG, sparce_m = self.knn_graph_stats
+        root = Node(self.knn_graph_stats, self.update_node_id(), [], list(range(self.vertex_num)), is_leaf=False)
+        self.node_list[root.id] = root
+        root.V = vG
+
         if self.strategy == 'bottom_up':
             Z = self.bottom_up(root)
+            root = self.node_list[self.node_id]
         else:
             Z = self.top_down(root)
-
+            root = self.node_list[2*self.vertex_num - 2]
+        self.root = root
+        self.Z = Z[:, :4]
         return Z
 
     def bottom_up(self, root):
         for i in range(self.vertex_num):
-            node = Node(self.graph_stats, self.get_node_id(), parent=root.id, leaf=True)
+            node = Node(self.knn_graph_stats, self.update_node_id(), [], [i], parent=root)
             self.node_list[node.id] = node
-            node.height = 1
-            node.children = [i]
-            node.left = node.right = i
-            node.init(root)
             root.children.append(node)
-        root.reset()
-        Z = self.linkage(root, tree_type='multinary', by='heap')
+            root.vs.append(i)
+        Z = self.linkage(root)
         return Z
 
     def top_down(self, root):
-        M, m, d, log_d, d_log_d, vG, log_vG, sparse_m = self.graph_stats
+        M, m, d, log_d, d_log_d, vG, log_vG, sparse_m = self.knn_graph_stats
 
         N = self.vertex_num
         root.vs = np.array(range(N))
         Z = np.zeros((N - 1, 5))
 
-        self.leafs = []
+        self.leaves = []
+        self.beyond_leaves = []
         nodes_to_divide = Queue(maxsize=N)
         nodes_to_divide.put(root)
         while not nodes_to_divide.empty():
@@ -239,23 +186,24 @@ class pySETree():
         return Z
 
     def _get_dividing_delta(self, node, children):
-        M, m, d, log_d, d_log_d, vG, log_vG, sparse_m = self.graph_stats
-        if self.objective == 'modularity':
+        if len(children) < 2:
+            return np.nan
+        M, m, d, log_d, d_log_d, vG, log_vG, sparse_m = self.knn_graph_stats
+        left, right = children
+        if self.objective == 'M':
             delta = (children[0].s/vG - np.power(children[0].V/vG, 2) + children[1].s/vG - np.power(children[1].V/vG, 2))
         else:
-            if self.max_g_ratio:
-                delta = 0
-                for child in children:
-                    g = max(child.g - self.vertex_num*(self.vertex_num-len(child.vs))*self.max_g_ratio, 0)
-                    delta += se.get_se(vG, g, child.V, node.V)
-            else:
-                delta = children[0].se + children[1].se
+            if self.strategy == 'bottom_up':
+                left.se = left.g/vG*log2(node.V/left.V)
+                right.se = right.g/vG*log2(node.V/right.V)
+            delta = (node.V_log_V - node.d_log_d)/vG \
+                - (left.se + (left.V_log_V - left.d_log_d)/vG) \
+                - (right.se + (right.V_log_V - right.d_log_d)/vG)
         return delta
 
     def dividing_tree(self, node, nodes_to_divide, Z):
 
-        M, m, d, log_d, d_log_d, vG, log_vG, sparse_m = self.graph_stats
-
+        M, m, d, log_d, d_log_d, vG, log_vG, sparse_m = self.knn_graph_stats
         if len(node.vs) > 2:
             A = M[np.ix_(node.vs, node.vs)]
             L = csgraph.laplacian(A, normed=True)
@@ -269,61 +217,89 @@ class pySETree():
             else:
                 fiedler_pos = np.where(eig_values.real == unique_eig_values[1])[0][0]
                 fiedler_vector = np.transpose(eig_vectors)[fiedler_pos]
+                if len(fiedler_vector) == self.vertex_num:
+                    self.root_fiedler_vector = fiedler_vector
                 clusters, centroids = kmeans1d.cluster(fiedler_vector, 2)
                 node1_vs = np.argwhere(np.array(clusters) == 0).T[0]
                 node2_vs = np.argwhere(np.array(clusters) == 1).T[0]
-        else:
-            node1_vs = [0]
-            node2_vs = [1]
+
+                if len(fiedler_vector) != self.vertex_num:
+                    node1_mean = np.mean(self.root_fiedler_vector[node1_vs])
+                    node2_mean = np.mean(self.root_fiedler_vector[node2_vs])
+                    if node1_mean > node2_mean:
+                        tmp = node1_vs
+                        node1_vs = node2_vs
+                        node2_vs = tmp
+
+        else:  # 2 vs
+            Z[node.id-(self.vertex_num)] = [node.vs[0], node.vs[1], -1, 2, node.id]
+            node.is_leaf = True
+            self.leaves.append(node.id)
+            return
 
         children_vs = [node1_vs, node2_vs]
 
         children = []
+        child_id_q = Queue(maxsize=2)
         for child_vs in children_vs:
             child_vs = node.vs[child_vs]
             if len(child_vs) == 1:
                 child_id = child_vs[0]
             else:
-                child_id = self.get_node_id(increment=False)
-            child = Node(self.graph_stats, child_id, parent=node.id)
-            child.vs = child_vs
-            child.init(parent=node, setVertices=False)
+                child_id = self.update_node_id(increment=False)
+                child_id_q.put(child_id)
+            child = Node(self.knn_graph_stats, child_id, [], child_vs, parent=node, is_leaf=False)
+            children.append(child)
+
+        delta = self._get_dividing_delta(node, children)
+        node.split_se = delta
+        if delta < self.split_se_cutoff:  # not split
+            node.is_leaf = True
+            self.leaves.append(node.id)
+            parent_id = node.id
+            parent_vertex_num = len(node.vs)
+            i = 0
+            for v in node.vs:
+                if parent_id < self.vertex_num:
+                    continue
+                if not child_id_q.empty():
+                    child_id = child_id_q.get()
+                elif i == len(node.vs)-2:
+                    child_id = node.vs[-1]
+                else:
+                    child_id = self.update_node_id(increment=False)
+
+                Z[parent_id-(self.vertex_num)] = [v, child_id, -1, parent_vertex_num, parent_id]
+                parent_id = child_id
+                parent_vertex_num -= 1
+                i += 1
+            return
+
+        for child in children:
+            child.height = node.height + 1
             self.node_list[child.id] = child
             node.children.append(child)
-            children.append(child)
-            child.height = node.height + 1
 
             if len(child.vs) > 1:
                 nodes_to_divide.put(child)
             else:
-                child.leaf = True
+                child.is_leaf = True
 
-        delta = self._get_dividing_delta(node, children)
-        if delta > 0 and self.vertex_num != len(node.vs):  # not split
-            node.leaf = True
-        if (node.parent and self.node_list[node.parent].leaf) or len(node.vs) == 2:
-            node.leaf = True
+        if (node.parent and self.node_list[node.parent.id].is_leaf) or len(node.vs) in [1, 2]:
+            node.is_leaf = True
 
-        if node.leaf:
+        if node.is_leaf:
             for child in children:
                 child.height = -1
                 child.leaf = True
+        else:
+            self.beyond_leaves.append(node.id)
 
         for n in [node] + children:
-            if n.leaf and not self.node_list[n.parent].leaf:
-                self.leafs.append(n)
+            if n.is_leaf and n.parent is not None and not self.node_list[n.parent.id].is_leaf:
+                self.leaves.append(n.id)
 
         Z[node.id-(self.vertex_num)] = [children[0].id, children[1].id, children[0].height, len(node.vs), node.id]
-
-    def get_max_delta_from_table(self, m, row_ids, col_ids):
-        m = m[np.ix_(row_ids, col_ids)]
-        max_i = np.argmax(m)
-        row_i = int(max_i/m.shape[1])
-        col_i = max_i % m.shape[1]
-        max_delta = m[row_i, col_i]
-        max_n1 = self.node_list[row_ids[row_i]]
-        max_n2 = self.node_list[col_ids[col_i]]
-        return max_n1, max_n2, max_delta
 
     def get_max_delta_from_heap(self, heap, row_ids, col_ids):
         while heap:
@@ -337,196 +313,215 @@ class pySETree():
         else:
             return None, None, None
 
-    def linkage(self, root, tree_type='multinary', by='heap'):
-        M, m, d, log_d, d_log_d, vG, log_vG, sparse_m = self.graph_stats
-        G = nx.from_numpy_matrix(M)
+    def linkage(self, root):
+        M, m, d, log_d, d_log_d, vG, log_vG, sparse_m = self.knn_graph_stats
 
         N = self.vertex_num
         Z = np.zeros((N - 1, 5))
-        delta_m = np.zeros((2*N - 1, 2*N - 1))
-        delta_m.fill(-10000)
-        leafs = {n: 1 for n in range(N)}
-        singletons = {n: 1 for n in range(N)}
+        leaves = {n: 1 for n in range(N)}
+        individuals = {n: 1 for n in range(N)}
 
         heap = []
         heapq.heapify(heap)
 
         i = 0
-        for n1, n2 in zip(*np.triu(M, 1).nonzero()):  # O(kn)
+        # for n1, n2 in zip(*np.triu(self.knn_m, 1).nonzero()):  # O(kn)
+        for n1, n2, _ in self.G.edges(data=True):
+            if n1 == n2:
+                continue
             node1 = self.node_list[n1]
             node2 = self.node_list[n2]
-            if self.objective == 'structure_entropy':
-                delta = se.get_delta_se_plus(M, sparse_m, vG, d, root, node1, node2)
+            if self.objective == 'SE':
+                delta = graph_metric.get_delta_merge_se(M, sparse_m, vG, d, root, node1, node2)
             else:  # network modularity
-                delta = se.get_delta_nm(M, sparse_m, vG, root, node1, node2)
-            delta_m[n1, n2] = delta
+                delta = graph_metric.get_delta_nm(M, sparse_m, vG, root, node1, node2)
             heapq.heappush(heap, (-delta, n1, n2))
             i += 1
+        if self.verbose:
+            print('i', i, '(linkage - initial non zero pair)')
 
         z_i = 0
-
         count = 0
-        for only_positive_delta in [True, False]:
-            if self.objective == 'modularity':
+        for only_positive_delta in [True, False]:  # set false to merge some sub part in club
+            if self.objective == 'M':
                 only_positive_delta = False
-            while singletons:
-                if tree_type == 'binary' and count > 0:
+            while individuals:
+                if not self.G.edges(data=True):
                     break
-                print('merge phase', self.objective, only_positive_delta, count)
-                z_i, merge_phase_i = self._merge_phase(G, root, singletons, leafs, Z, z_i, delta_m, heap, count+1,
-                                                       only_positive_delta=only_positive_delta, by=by)
+                if self.verbose:
+                    print('-----', self.objective, 'merge phase', count, only_positive_delta, 'start, individuals: ', len(individuals), ', leaves ', len(leaves))
+                    print(len(self.G.edges(data=True)))
+                z_i, merge_phase_i = self._merge_phase(root, individuals, leaves, Z, z_i, heap,
+                                                       only_positive_delta=only_positive_delta)
+                if self.verbose:
+                    print('-----', self.objective, 'merge phase', count, 'end, individuals', len(individuals), ', leaves ', len(leaves))
                 i += merge_phase_i
-                print('i', i, 'merge phase')
+                if self.verbose:
+                    print('i', i, 'merge phase')
                 count += 1
-                if singletons:
+                if len(individuals) > 0:
                     break
-                singletons = {}
-                for l in leafs:
-                    self.node_list[l].is_singleton = True
-                    singletons[l] = 1
+                for l in leaves:
+                    self.node_list[l].is_individual = True
+                    individuals[l] = 1
                     i += 1
-                print('i', i, 'merge phase update leafs states')
-                if not G.edges(data=True):
-                    break
+                if self.verbose:
+                    print('i', i, 'merge phase update leaves states')
 
-        self.leafs = [self.node_list[l] for l in leafs]
+        self.leaves = [l for l in leaves]
         while z_i < self.vertex_num - 1:
-            only_positive_delta = False
-            print('binary merge', self.objective, only_positive_delta, count)
-            z_i, binary_merge_i = self._binary_merge(G, root, leafs, Z, z_i, delta_m,
-                                                     only_positive_delta=only_positive_delta,
-                                                     by=by)
-            i += binary_merge_i
+            if self.verbose:
+                print('-----', self.objective, 'binary merge', count)
+            z_i, binary_combine_i = self._binary_combine(root, leaves, Z, z_i,
+                                                         only_positive_delta=False)
+            i += binary_combine_i
+            if self.verbose:
+                print('i', i, 'binary_combine')
             count += 1
 
+        if self.verbose:
+            print('N', N, 'i', i)
         return Z
 
-    def _merge_phase(self, G, root, singletons, leafs, Z, z_i, delta_m, heap, dist,
-                     only_positive_delta=True, is_leaf=True, by='heap'):
-        M, m, d, log_d, d_log_d, vG, log_vG, sparse_m = self.graph_stats
+    def _merge_phase(self, root, individuals, leaves, Z, z_i, heap,
+                     only_positive_delta=True, is_leaf=True):
+        M, m, d, log_d, d_log_d, vG, log_vG, sparse_m = self.knn_graph_stats
         i = 0
-        while singletons:
-            if not G.edges(data=True):
+        while individuals:
+            if not self.G.edges(data=True):
                 return z_i, i
 
-            if by == 'table':
-                max_n1, max_n2, max_delta = self.get_max_delta_from_table(delta_m, singletons, leafs)
-            else:
-                max_n1, max_n2, max_delta = self.get_max_delta_from_heap(heap, singletons, leafs)
+            max_n1, max_n2, max_delta = self.get_max_delta_from_heap(heap, individuals, leaves)
 
             if max_n1 is None:
                 return z_i, i
-
-            new_node = root.merge(self.get_node_id(), max_n1, max_n2, is_leaf=is_leaf)
+            new_node = root.merge(self.update_node_id(), max_n1, max_n2, is_leaf=is_leaf)
             self.node_list[new_node.id] = new_node
 
-            Z[z_i] = [max_n1.id, max_n2.id, dist, len(max_n1.vs) + len(max_n2.vs), new_node.id]
+            Z[z_i] = [max_n1.id, max_n2.id, new_node.dist, len(new_node.vs), new_node.id]
 
             # update
-            del singletons[max_n1.id]
-            max_n1.is_singleton = False
-            if max_n2.is_singleton:
-                del singletons[max_n2.id]
-                max_n2.is_singleton = False
+            del individuals[max_n1.id]
+            max_n1.is_individual = False
+            if max_n2.is_individual:
+                del individuals[max_n2.id]
+                max_n2.is_individual = False
             if max_n1.is_leaf:
-                del leafs[max_n1.id]
+                del leaves[max_n1.id]
                 max_n1.is_leaf = False
-            del leafs[max_n2.id]
+            del leaves[max_n2.id]
             max_n2.is_leaf = False
 
             new_node.is_leaf = True
-            new_node.is_singleton = False
+            new_node.is_individual = False
 
-            G.add_node(new_node.id)
-            for x in set(chain(G.neighbors(max_n1.id), G.neighbors(max_n2.id))):
+            self.G.add_node(new_node.id)
+            for x in set(chain(self.G.neighbors(max_n1.id), self.G.neighbors(max_n2.id))):
+                if x == max_n1.id or x == max_n2.id:
+                    continue
                 i += 1
                 node = self.node_list[x]
-                if self.objective == 'structure_entropy':
-                    delta = se.get_delta_se_plus(M, sparse_m, vG, d, root, node, new_node)
+                if self.objective == 'SE':
+                    delta = graph_metric.get_delta_merge_se(M, sparse_m, vG, d, root, node, new_node)
+                    # delta = se.get_delta_combine_se(M, sparse_m, vG, root, node, new_node)
                 else:
-                    delta = se.get_delta_nm(M, sparse_m, vG, root, node, new_node)
+                    delta = graph_metric.get_delta_nm(M, sparse_m, vG, root, node, new_node)
                 if only_positive_delta and delta < 0:
                     continue
-                delta_m[x, new_node.id] = delta
                 heapq.heappush(heap, (-delta, x, new_node.id))
-                G.add_edge(x, new_node.id, weight=1)
+                self.G.add_edge(x, new_node.id, weight=1)
 
-            leafs[new_node.id] = 1
-            G.remove_node(max_n1.id)
-            G.remove_node(max_n2.id)
+            leaves[new_node.id] = 1
+            self.G.remove_node(max_n1.id)
+            self.G.remove_node(max_n2.id)
 
             z_i += 1
-
         return z_i, i
 
-    def _binary_merge(self, G, root, leafs, Z, z_i, delta_m, only_positive_delta=True, by='heap'):
-        M, m, d, log_d, d_log_d, vG, log_vG, sparse_m = self.graph_stats
+    def _binary_combine(self, root, leaves, Z, z_i, only_positive_delta=False, by='heap'):
+        M, m, d, log_d, d_log_d, vG, log_vG, sparse_m = self.knn_graph_stats
         heap = []
         heapq.heapify(heap)
         i = 0
-        ns = [(n1, n2) for n1, n2, _ in G.edges(data=True)]
+        ns = [(n1, n2) for n1, n2, _ in self.G.edges(data=True) if n1 != n2]
         if not ns:
-            ns = itertools.combinations(leafs, 2)
+            ns = itertools.combinations(leaves, 2)
         for n1, n2 in ns:
             node1, node2 = self.node_list[n1], self.node_list[n2]
-            if self.objective == 'structure_entropy':
-                delta = se.get_delta_se(M, sparse_m, vG, root, node1, node2)
+            if self.objective == 'SE':
+                delta = graph_metric.get_delta_combine_se(M, sparse_m, vG, root, node1, node2)
             else:
-                delta = se.get_delta_nm(M, sparse_m, vG, root, node1, node2)
-            delta_m[n1, n2] = delta
+                delta = graph_metric.get_delta_nm(M, sparse_m, vG, root, node1, node2)
             if only_positive_delta and delta < 0:
                 continue
             heapq.heappush(heap, (-delta, n1, n2))
             i += 1
 
         while z_i < self.vertex_num - 1:
-            if by == 'table':
-                max_n1, max_n2, max_delta = self.get_max_delta_from_table(delta_m, leafs, leafs)
-            else:
-                max_n1, max_n2, max_delta = self.get_max_delta_from_heap(heap, leafs, leafs)
+            max_n1, max_n2, max_delta = self.get_max_delta_from_heap(heap, leaves, leaves)
 
             if max_n1 is None:
                 return z_i, i
 
-            new_node = root.merge(self.get_node_id(), max_n1, max_n2, is_leaf=False)
+            new_node = root.merge(self.update_node_id(), max_n1, max_n2, is_leaf=False)
             self.node_list[new_node.id] = new_node
 
-            Z[z_i] = [max_n1.id, max_n2.id, new_node.dist, len(max_n1.vs) + len(max_n2.vs), new_node.id]
+            Z[z_i] = [max_n1.id, max_n2.id, new_node.dist, len(new_node.vs), new_node.id]
 
             # update
-            del leafs[max_n1.id]
-            del leafs[max_n2.id]
-            G.add_node(new_node.id)  # O(k)
-            xs = set(chain(G.neighbors(max_n1.id), G.neighbors(max_n2.id)))
+            del leaves[max_n1.id]
+            del leaves[max_n2.id]
+            self.G.add_node(new_node.id)  # O(k)
+            xs = set(chain(self.G.neighbors(max_n1.id), self.G.neighbors(max_n2.id)))
+            # xs = []  # not solving HC problem
             if not xs:
-                xs = leafs
+                xs = leaves
             for x in xs:
                 node = self.node_list[x]
-                if self.objective == 'structure_entropy':
-                    delta = se.get_delta_se(M, sparse_m, vG, root, node, new_node)
+                if self.objective == 'SE':
+                    delta = graph_metric.get_delta_combine_se(M, sparse_m, vG, root, node, new_node)
                 else:
-                    delta = se.get_delta_nm(M, sparse_m, vG, root, node, new_node)
+                    delta = graph_metric.get_delta_nm(M, sparse_m, vG, root, node, new_node)
                 if only_positive_delta and delta < 0:
                     continue
-                delta_m[x, new_node.id] = delta
                 heapq.heappush(heap, (-delta, x, new_node.id))
                 i += 1
-            G.remove_node(max_n1.id)
-            G.remove_node(max_n2.id)
-            leafs[new_node.id] = 1
+            self.G.remove_node(max_n1.id)
+            self.G.remove_node(max_n2.id)
+            leaves[new_node.id] = 1
 
             z_i += 1
 
         return z_i, i
 
-    def cut_tree(self, Z, n_clusters):
+    def order_tree(self):
+        M, m, d, log_d, d_log_d, vG, log_vG, sparse_m = self.knn_graph_stats
+        node = self.root
+        A = M[np.ix_(node.vs, node.vs)]
+        L = csgraph.laplacian(A, normed=True)
+        eig_values, eig_vectors = la.eigh(L)
+
+        unique_eig_values = np.sort(list(set(eig_values.real)))
+        fiedler_pos = np.where(eig_values.real == unique_eig_values[1])[0][0]
+        fiedler_vector = np.transpose(eig_vectors)[fiedler_pos]
+        self._order_tree_aux(node, fiedler_vector)
+
+    def _order_tree_aux(self, node, vector):
+        if len(node.children) == 0:
+            return
+        left_v = np.median(vector[node.children[0].vs])
+        right_v = np.median(vector[node.children[1].vs])
+        if left_v > right_v:  # swith
+            node.chidlren = node.children[::-1]
+            row = self.Z[node.id - self.vertex_num]
+            self.Z[node.id - self.vertex_num] = [row[1], row[0], row[2], row[3]]
+
+        for child in node.children:
+            self._order_tree_aux(child, vector)
+
+    def contract_tree(self, Z, n_clusters):
         # update node distance
-        if self.strategy == 'bottom_up':
-            root = self.node_list[self.node_id]
-        else:
-            root = self.node_list[2*self.vertex_num - 2]
-        self.root = root
-        se_scores, ks_clusters, optimal_k = self._cut_tree_dp(root)
+        se_scores, ks_subpopulation_node_ids, ks_clusters, optimal_k = self._contract_tree_dp(self.root)
         tmp = pd.DataFrame(np.matrix(se_scores), columns=self.ks).T
         tmp['K'] = tmp.index
         tmp.columns = ['SE Score', 'K']
@@ -542,216 +537,377 @@ class pySETree():
 
         self.optimal_k = optimal_k
         self.optimal_clusters = self.ks_clusters['K={}'.format(self.optimal_k)].tolist()
+        self.optimal_subpopulation_node_ids = ks_subpopulation_node_ids[optimal_k-1]
         return
 
-    def _cut_tree_dp(self, root):
-        M, m, d, log_d, d_log_d, vG, log_vG, sparse_m = self.graph_stats
-        nodes = range(self.vertex_num*2 - 1)
-        cost_m = np.zeros((len(nodes), 5))
-        cutoff_m = np.zeros((len(nodes), 5))
-        cutoff_m.fill(-1)
-        np.set_printoptions(suppress=True)
+    def _contract_tree_dp(self, root):
+        M, m, d, log_d, d_log_d, vG, log_vG, sparse_m = self.knn_graph_stats
+        if self.strategy == 'bottom_up':
+            node_ids = self.leaves + list(range(self.leaves[-1]+1, self.vertex_num*2 - 1))
+        else:
+            node_ids = self.leaves[::-1] + self.beyond_leaves[::-1]
+        # print(node_ids)  # the nodes ordered from leaf to parent
 
-        self._dp_compute_cost(cost_m, cutoff_m, nodes)
+        cost_m = np.zeros((len(node_ids), self.max_k+1))
+        cost_m.fill(np.nan)
+        cutoff_m = np.zeros((len(node_ids), self.max_k+1))
+        cutoff_m.fill(-1)
+
+        self._dp_compute_cost(cost_m, cutoff_m, node_ids)
+        if self.verbose:
+            print('se cost')
+            print(cost_m[-1, :])
+        # print(cost_m)
+        # print(cost_m.shape)
+        # print(cutoff_m)
         ks_clusters = []
+        ks_subpopulation_node_ids = []
         for k in self.ks:
             if k == 1:
                 ks_clusters.append([0]*self.vertex_num)
+                ks_subpopulation_node_ids.append([self.root.id])
                 continue
-            clusters = []
-            self._trace_back(root, cost_m, cutoff_m, nodes, clusters, k)
-            clusters = [(v, i) for i, c in enumerate(clusters) for v in self.node_list[c].vs]
+            subpopulation_node_ids = []
+            self._trace_back(root, cost_m, cutoff_m, subpopulation_node_ids, k)
+            clusters = [(v, i) for i, c in enumerate(subpopulation_node_ids) for v in self.node_list[c].vs]
             clusters = sorted(clusters)
             clusters = [c for v, c in clusters]
-            if len(clusters) != self.vertex_num:  # happens in bottom up node if k larger than number of leafs
+            if len(clusters) != self.vertex_num:  # happens in bottom up node if k larger than number of leaves
                 ks_clusters.append([0]*self.vertex_num)
+                ks_subpopulation_node_ids.append([])
                 continue
 
             ks_clusters.append(clusters)
+            ks_subpopulation_node_ids.append(subpopulation_node_ids)
 
         optimal_k = self.max_k - np.argmin(cost_m[-1, 2:][::-1])
-        return cost_m[-1, 1:], ks_clusters, optimal_k
+        if self.verbose:
+            print(cost_m[-1, :][optimal_k])
+        return cost_m[-1, 1:], ks_subpopulation_node_ids, ks_clusters, optimal_k
 
-    def _trace_back(self, node, cost_m, cutoff_m, nodes, clusters, k_hat):
-        if type(node) == int:
-            return
-        if len(node.vs) == 1:
-            return
-        i = node.id
+    def _dp_compute_cost(self, cost_m, cutoff_m, node_ids, contract_type='2D'):
 
-        if k_hat == 1:
-            return
+        M, m, d, log_d, d_log_d, vG, log_vG, sparse_m = self.knn_graph_stats
+        aff_M, aff_m, aff_d, aff_log_d, aff_d_log_d, aff_vG, aff_log_vG, _ = self.aff_graph_stats
 
-        k_prime = int(cutoff_m[i, k_hat])
+        for dp_i, node_id in enumerate(node_ids):
+            node = self.node_list[node_id]
+            node.dp_i = dp_i
+
+            for k in self.ks:
+
+                node_g = graph_metric.get_g(aff_M, sparse_m, node.vs)   # sparse_m is not used
+                node_V = graph_metric.get_v(aff_M, sparse_m, node.vs)
+                if node.parent and contract_type == 'high-dimensional':
+                    parent_V = graph_metric.get_v(aff_M, sparse_m, node.parent.vs)
+                else:  # root node or 2D hirerachy
+                    parent_V = aff_vG
+                # node_se = node_g/aff_vG*log2(parent_V/node_V)
+                node_se = graph_metric.get_node_score(self.objective, aff_vG, node_g, node_V, parent_V, eta=1)
+
+                if k == 1:
+                    node_d_log_d = np.sum(aff_d_log_d[node.vs])
+                    cost_m[node.dp_i, k] = node_se + \
+                        graph_metric.get_node_vertices_score(self.objective, aff_vG, node_d_log_d, node_V)
+                    # - (node_d_log_d - node_V*log2(node_V))/aff_vG
+                    # print(node.id, k, cost_m[node.dp_i, k], len(node.vs))
+                    continue
+
+                if len(node.vs) < k or not node.children:
+                    cost_m[node.dp_i, k] = np.inf
+                    continue
+
+                l_id = node.children[0].dp_i
+                r_id = node.children[1].dp_i
+                min_i = None
+                min_cost = np.inf
+                for i in range(1, k):
+                    cost = cost_m[l_id, i] + cost_m[r_id, k-i]
+                    if contract_type == 'high_dimensional':
+                        cost += node_se
+                    if cost < min_cost:
+                        min_cost = cost
+                        min_i = i
+                cost_m[node.dp_i, k] = min_cost
+                cutoff_m[node.dp_i, k] = min_i
+                # print(node.id, k, cost_m[node.dp_i, k], len(node.vs))
+
+    def _trace_back(self, node, cost_m, cutoff_m, clusters, k_hat):
+        k_prime = cutoff_m[node.dp_i, k_hat]
+        if np.isnan(k_prime) or k_prime == -1:
+            return
+        k_prime = int(k_prime)
         left_node = node.children[0]
         right_node = node.children[-1]
 
         if k_prime > 1:
-            self._trace_back(left_node, cost_m, cutoff_m, nodes, clusters, k_prime)
+            self._trace_back(left_node, cost_m, cutoff_m, clusters, k_prime)
         else:
-            if type(left_node) == int:
-                clusters.append(left_node)
-            else:
-                clusters.append(left_node.id)
+            clusters.append(left_node.id)
         if k_prime < k_hat-1:
-            self._trace_back(right_node, cost_m, cutoff_m, nodes, clusters, k_hat-k_prime)
+            self._trace_back(right_node, cost_m, cutoff_m, clusters, k_hat-k_prime)
         else:
-            if type(right_node) == int:
-                clusters.append(right_node)
-            else:
-                clusters.append(right_node.id)
+            clusters.append(right_node.id)
 
-    def _dp_compute_cost(self, cost_m, cutoff_m, nodes):
-        M, m, d, log_d, d_log_d, vG, log_vG, sparse_m = self.graph_stats
-        for n in nodes:
-            node = self.node_list[n]
-            if type(node) == int:
-                cost_m[node, :] = 1000
-                continue
+    def get_tree_se(self):
+        return 0
+        tree_se = 0
+        self.get_tree_se_aux(self.root, tree_se)
+        if self.verbose:
+            print(tree_se)
 
-            for k in self.ks:
-                if (self.strategy == 'bottom_up' and k != 1 and node.leaf) or len(node.vs) < k:
-                    cost_m[node.id, k] = 1000
-                    continue
-
-                if self.objective == 'structure_entropy':
-                    if self.max_g_ratio:
-                        g = max(node.g - self.vertex_num*(self.vertex_num-len(node.vs))*self.max_g_ratio, 0)
-                        parent_V = vG if not node.parent else self.node_list[node.parent].V
-                        node_cost = se.get_se(vG, g, node.V, parent_V)
-                    else:
-                        node_cost = node.se
-                else:
-                    node_cost = -(node.s/vG - np.power(node.V/vG, 2))
-                if k == 1:
-                    cost_m[node.id, k] = node_cost
-                    continue
-
-                if type(node.children[0]) == int:
-                    l_id = node.children[0]
-                else:
-                    l_id = node.children[0].id
-                if type(node.children[1]) == int:
-                    r_id = node.children[1]
-                else:
-                    r_id = node.children[1].id
-                min_i = None
-                min_cost = 100000
-                for i in range(1, k):
-                    cost = cost_m[l_id, i] + cost_m[r_id, k-i] + node_cost
-                    if cost < min_cost:
-                        min_cost = cost
-                        min_i = i
-
-                cost_m[node.id, k] = min_cost
-                cutoff_m[node.id, k] = min_i
-
-    def _cut_tree_dp_recursive(self, parent, node, k, vG, cost_m, cutoff_m, nodes):
-        M, m, d, log_d, d_log_d, vG, log_vG, sparse_m = self.graph_stats
-        if type(node) == int:
-            return 1000
-        if len(node.vs) < k:
-            return 1000
-        if k == 1:
-            if self.objective == 'structure_entropy':
-                cost = node.se
-            else:
-                cost = -(node.s/vG - np.power(node.V/vG, 2))
-            return cost
-
-        min_cost = 100000000
-        min_i = None
-        for i in range(1, k):
-            l_cost = self._cut_tree_dp_recursive(node, node.children[0], i, vG, cost_m, cutoff_m, nodes)
-            r_cost = self._cut_tree_dp_recursive(node, node.children[1], k-i, vG, cost_m, cutoff_m, nodes)
-            cost = l_cost + r_cost + node.se
-            if cost < min_cost:
-                min_cost = cost
-                min_i = i
-        cost_m[node.id, k] = min_cost
-        cutoff_m[node.id, k] = min_i
-        return min_cost
-
-    def _update_dist_to_level(self, parent, Z):
-        for c in parent.children:
-            c.reset(parent)
-            if c.leaf:
-                c.reset(parent)
-                continue
-            c.dist = parent.dist - 1
-            if c.id > self.vertex_num:
-                Z[c.id-self.vertex_num, 2] = c.dist
-            self._update_dist_to_level(c, Z)
+    def get_tree_se_aux(self, node, tree_se):
+        tree_se += node.se
+        if len(node.children) != 0:
+            tree_se += node.se
 
     def to_newick(self):
         return '({});'.format(self._to_newick_aux(self.root, is_root=True))
 
     def _to_newick_aux(self, node, is_root=False):
-        if type(node) == int or type(node) == np.int32:
-            return 'n{}:{}'.format(node, 1)
         if len(node.vs) == 1:
             return 'n{}:{}'.format(node.id, 1)
 
-        if node.leaf:
+        if node.is_leaf:
             if self.strategy == 'bottom_up':
                 res = self._to_newick_leaf_bottom_up(node)
             else:
                 res = self._to_newick_leaf_top_down(node)
         else:
             res = ','.join([self._to_newick_aux(c) for c in node.children])
-        if is_root:
-            res = '({})n{}:{}'.format(res, node.id, 1)
-        else:
-            res = '({})n{}:{}'.format(res, node.id, 1)
-        return res
+
+        return '({})n{}:{}'.format(res, node.id, 1)
 
     def _to_newick_leaf_bottom_up(self, node):
-        if type(node) == int or type(node) == np.int32:
-            return 'n{}'.format(node, 1)
         if len(node.vs) == 1:
             return 'n{}'.format(node.id, 1)
-
-        return ','.join([self._to_newick_leaf_bottom_up(self.node_list[v]) for v in node.vs])
+        else:
+            return ','.join([self._to_newick_leaf_bottom_up(self.node_list[v]) for v in node.vs])
 
     def _to_newick_leaf_top_down(self, node):
-        if type(node) == int or type(node) == np.int32:
+        try:
+            return ','.join([self._to_newick_leaf_top_down(v) for v in node.vs])
+        except Exception:
             return 'n{}:{}'.format(node, 1)
-        if len(node.vs) == 1:
-            return 'n{}:{}'.format(node.id, 1)
 
-        return ','.join([self._to_newick_leaf_top_down(c) for c in node.children])
+    def to_split_se(self):
+        split_dict_list = []
+        self._to_split_se_aux(self.root, split_dict_list)
+        df = pd.DataFrame(split_dict_list)
+        return df
+
+    def _to_split_se_aux(self, node, split_dict_list, subpopulation=False, club=False):
+        if node.id in self.optimal_subpopulation_node_ids:
+            subpopulation = True
+        if node.id in self.leaves:
+            club = True
+        if self.strategy == 'bottom_up':
+            split_se = self._get_dividing_delta(node, node.children)
+        else:
+            split_se = node.split_se
+        split_dict_list.append({
+            'node_id': node.id,
+            'split_se': split_se,
+            'vertex_num': len(node.vs),
+            'subpopulation': subpopulation,
+            'club': club,
+        })
+        for child in node.children:
+            self._to_split_se_aux(child, split_dict_list, subpopulation, club)
 
 
 class SEAT(AgglomerativeClustering):
 
     def __init__(self, min_k=1, max_k=10,
-                 max_g_ratio=0,
+                 a=None,
                  affinity='precomputed',
+                 sparsification='knn_neighbors',
+                 knn_m=None,
                  strategy='top_down',
-                 objective='structure_entropy',
+                 objective='SE',
                  n_neighbors=10,
-                 corr_cut_off=0.8,
+                 dist_topk=5,
+                 split_se_cutoff=0.05,
+                 kernel_gamma=None,
+                 outlier_detection=None,
+                 outlier_percentile=None,
+                 outlier_distance=0.5,
+                 verbose=False,
                  ):
         self.min_k = min_k
         self.max_k = max_k
         self.ks = range(min_k, max_k+1)
-        self.max_g_ratio = max_g_ratio
+        self.a = a
         self.affinity = affinity
+        self.sparsification = sparsification
         self.strategy = strategy
         self.objective = objective
         self.n_neighbors = n_neighbors
-        self.corr_cut_off = corr_cut_off
+        self.dist_topk = dist_topk
+        self.split_se_cutoff = split_se_cutoff
 
-    def get_affinity(self, X):
+        self.kernel_gamma = kernel_gamma
+
+        self.knn_m = knn_m
+
+        self.outlier_detection = outlier_detection
+        self.outlier_percentile = outlier_percentile
+        self.outlier_distance = outlier_distance
+        self.verbose = verbose
+
+    def construct_affinity(self, X):
+        # https://scikit-learn.org/stable/modules/metrics.html
+
         if self.affinity == 'precomputed':
             aff_m = X
-        elif self.affinity == 'knn_neighbors':
+
+        elif self.affinity == 'cosine_similarity':
+            aff_m = pairwise_kernels(X, metric='cosine')
+
+        elif self.affinity == 'linear_kernel':
+            aff_m = pairwise_kernels(X, metric='linear')
+
+        elif self.affinity == 'gaussian_kernel':
+            if self.kernel_gamma:
+                sigma = self.kernel_gamma
+            else:
+                sigma = X.std()
+            if self.verbose:
+                print('sigma', sigma)
+            gamma = 1/(sigma*sigma)
+            aff_m = pairwise_kernels(X, metric='rbf', gamma=gamma)
+
+        elif self.affinity == 'gaussian_kernel_topk':
+            if self.kernel_gamma:
+                sigma = self.kernel_gamma
+            else:
+                sigma = X.std()
+            if self.dist_topk > X.shape[1]:
+                dist_topk = X.shape[1]
+            else:
+                dist_topk = self.dist_topk
+            n = X.shape[0]
+            aff_m = np.zeros((n, n))
+            for i in range(n):
+                for j in range(i, n):
+                    dist = (X[i] - X[j])**2
+                    dist.sort()
+                    dist = dist[-dist_topk:]
+                    v = np.exp(-np.sum(dist)/sigma/sigma)
+                    aff_m[i][j] = v
+                    aff_m[j][i] = v
+
+        elif self.affinity == 'laplacian_kernel':
+            if self.kernel_gamma:
+                gamma = self.kernel_gamma
+            else:
+                gamma = 0.1
+            aff_m = pairwise_kernels(X, metric='laplacian', gamma=gamma)
+
+        elif self.affinity == 'knn_neighbors_from_X':
             aff_m = kneighbors_graph(X, self.n_neighbors).toarray()
             aff_m = (aff_m + aff_m.T)/2
             aff_m[np.nonzero(aff_m)] = 1
 
-        self.affinity_m = aff_m
+        if (aff_m < 0).any():
+            aff_m = aff_m + np.abs(np.min(aff_m))
 
+        self.aff_m = aff_m
+
+    def graph_sparsification(self, X):
+        knn_m = None
+        if self.sparsification == 'affinity':
+            knn_m = copy.deepcopy(self.aff_m)
+        elif self.sparsification == 'precomputed':
+            knn_m = self.knn_m
+        if self.sparsification == 'knn_neighbors':
+            k = self.n_neighbors
+            knn_m = np.zeros((X.shape[0], X.shape[0]))
+            for i in range(X.shape[0]):
+                ids = np.argpartition(self.aff_m[i], -k)[-k:]
+                top_set = set(self.aff_m[i, ids])
+                if len(top_set) == 1:
+                    b = self.aff_m[i] == top_set.pop()
+                    ids = []
+                    offset = 1
+                    left = True
+                    while len(ids) < k:
+                        if left:
+                            idx = i + offset
+                        else:
+                            idx = i - offset
+                        if idx < 0 or idx > len(b)-1:
+                            offset += 1
+                            left = not left
+                            continue
+                        if b[idx]:
+                            ids.append(idx)
+                        offset += 1
+                        left = not left
+                knn_m[i, ids] = 1
+
+            knn_m = (knn_m + knn_m.T)/2
+            knn_m[np.nonzero(knn_m)] = 1
+
+        if self.sparsification == 'knn_neighbors_from_X':
+            knn_m = kneighbors_graph(X, self.n_neighbors).toarray()
+            knn_m = (knn_m + knn_m.T)/2
+            knn_m[np.nonzero(knn_m)] = 1
+
+        self.knn_m = knn_m
+
+    def detect_outlier(self, X):
+        
+        if self.outlier_detection == 'knn_neighbors':
+            knn = NearestNeighbors(n_neighbors=self.n_neighbors)
+            knn.fit(X)
+            distances, indexes = knn.kneighbors(X)
+            distances_mean = distances.mean(axis=1)
+            if self.outlier_percentile:
+                cutoff = np.quantile(distances_mean, self.outlier_percentile)
+            else:
+                cutoff = self.outlier_distance
+            self.outlier_index = np.where(distances_mean > cutoff)[0]
+            self.inlier_index = np.where(distances_mean <= cutoff)[0]
+            return X[self.inlier_index, :]
+        else:
+            self.outlier_index = []
+            return X
+
+    def insert_outliers(self, labels):
+        #print(len(self.outlier_index), len(self.inlier_index))
+        if len(self.outlier_index) == 0:
+            return labels
+        
+        n = len(self.outlier_index) + len(self.inlier_index)
+        new_labels = []
+        inliner_i = 0
+        for i in range(n):
+            if i in self.outlier_index:
+                new_labels.append(-1)
+            else:
+                new_labels.append(labels[inliner_i])
+                inliner_i += 1
+        return new_labels
+
+    def insert_outliers_df(self, label_df):
+        #print(len(self.outlier_index), len(self.inlier_index))
+        if len(self.outlier_index) == 0:
+            return label_df
+        label_m = label_df.values.tolist()
+       
+        n = len(self.outlier_index) + len(self.inlier_index)
+        new_label_m = []
+        inliner_i = 0
+        for i in range(n):
+            if i in self.outlier_index:
+                new_label_m.append([-1]*label_df.shape[1])
+            else:
+                new_label_m.append(label_m[inliner_i])
+                inliner_i += 1
+        new_label_df = pd.DataFrame(new_label_m, columns = label_df.columns)
+        return new_label_df
+        
     def fit(self, X, y=None):
 
         X = self._validate_data(X, ensure_min_samples=2, estimator=self)
@@ -764,60 +920,91 @@ class SEAT(AgglomerativeClustering):
             raise ValueError("max_k should be an integer greater than 2."
                              " %s was provided." % str(self.max_k))
 
-        if self.affinity not in ['precomputed', 'knn_neighbors']:
-            raise ValueError("affinity should be precomputed, knn_neighbors."
-                             " %s was provided." % str(self.affinity))
+        if self.affinity not in ['precomputed', 'gaussian_kernel', 'gaussian_kernel_topk', 'linear_kernel', 'cosine_similarity', 'knn_neighbors_from_X', 'laplacian_kernel']:
+            raise ValueError("affinity should be precomputed, gaussian_kernel, linear_kernel, cosine_similarity, knn_neighbors_from_X, "
+                             "laplacian_kernel. "
+                             "%s was provided." % str(self.affinity))
 
+        if self.sparsification not in ['affinity', 'precomputed', 'knn_neighbors', 'knn_neighbors_from_X']:
+            raise ValueError("sparsification should be affinity, precomputed, knn_neighbors, knn_neighbors_from_X."
+                             " %s was provided." % str(self.sparsification))
+
+        if self.outlier_detection not in [None, 'knn_neighbors']:
+            raise ValueError("outlier_detection should be None, precomputed."
+                             " %s was provided." % str(self.outlier_detection))            
+            
         if self.strategy not in ['bottom_up', 'top_down']:
             raise ValueError("affinity should be bottom_up, top_down."
                              " %s was provided." % str(self.strategy))
-
-        self.get_affinity(X)
+            
+        if self.verbose:
+            print('fit', self.strategy)
+            
+        X = self.detect_outlier(X)
+        self.construct_affinity(X)
+        self.graph_sparsification(X)
+        
 
         # build the tree
 
         setree_class = pySETree
+        # setree_class = seat_wrapper.SETree
 
-        se_tree = setree_class(self.affinity_m, self.min_k, self.max_k,
-                        self.max_g_ratio,
-                        self.objective,
-                        self.strategy)
+        se_tree = setree_class(self.aff_m, self.knn_m,
+                               self.min_k, self.max_k,
+                               self.objective,
+                               self.strategy,
+                               self.split_se_cutoff,
+                               verbose=self.verbose)
         self.se_tree = se_tree
+        t1 = time.time()
         Z = se_tree.build_tree()
-        self.affinity_m = se_tree.affinity_m
-        se_tree.cut_tree(Z, self.ks)
+        t2 = time.time()
+        if self.verbose:
+            print('build tree time', t2 - t1)
+        self.aff_m = se_tree.aff_m
+
+        # se_tree.order_tree()
+        self.tree_se = se_tree.get_tree_se()
+
+        se_tree.contract_tree(Z, self.ks)
         self.vertex_num = se_tree.vertex_num
         self.ks = list(se_tree.ks)
         self.se_scores = se_tree.se_scores
         self.delta_se_scores = se_tree.delta_se_scores
         self.optimal_k = se_tree.optimal_k
-        self.labels_ = se_tree.optimal_clusters
+        
+        self.labels_ = self.insert_outliers(se_tree.optimal_clusters)
         self.Z_ = Z[:, :4]
         self.leaves_list = hierarchy.leaves_list(self.Z_)
-        self.order = self._order()
-        self.ks_clusters = se_tree.ks_clusters
-        self.Z_clusters = se_tree.Z_clusters
-        self.submodules = self._get_submodules()
-        self.submodule_k = len(se_tree.leafs)
+        self.order = self.insert_outliers(self._order())
+        self.ks_clusters = self.insert_outliers_df(se_tree.ks_clusters)
+        self.Z_clusters = self.insert_outliers_df(se_tree.Z_clusters)
+        self.clubs = self.insert_outliers(self._get_clubs())
+        self.club_k = len(se_tree.leaves)
 
         self.newick = se_tree.to_newick()
+
+        self.split_se = se_tree.to_split_se()
 
         return self
 
     def _order(self):
+        # hierarchy.leaves_list(self.Z_)
         order = [(l, i) for i, l in enumerate(self.leaves_list)]
         order.sort()
         return [i for l, i in order]
 
-    def _get_submodules(self):
-        leafs = sorted([(self.order[l.vs[0]], l.id) for l in self.se_tree.leafs])
-        order = [(v, i) for i, l in enumerate(leafs) for v in self.se_tree.node_list[l[1]].vs]
+    def _get_clubs(self):
+        leaves = sorted([(self.order[self.se_tree.node_list[l].vs[0]], l) for l in self.se_tree.leaves])
+        order = [(v, i) for i, l in enumerate(leaves) for v in self.se_tree.node_list[l[1]].vs]
         order.sort()
         return [i for n, i in order]
 
     def oval_embedding(self, a=3, b=2, k=0.2):
+        # http://www.mathematische-basteleien.de/eggcurves.htm
         angle = np.array([self.order])*(2*np.pi/len(self.order))
         xcor = a*np.cos(angle)
-        ycor = b*np.sqrt(np.exp(k*a*np.cos(angle)))*np.sin(angle)
+        ycor = b*np.sin(angle)*1/np.sqrt(np.exp(k*np.cos(angle)))
         plane_coordinate = np.concatenate((xcor, ycor), axis=0).T
         return plane_coordinate
