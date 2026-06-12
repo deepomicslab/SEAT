@@ -17,6 +17,7 @@ from scipy.sparse import csgraph
 import time
 import copy
 from itertools import compress
+#from sklearn.utils.validation import validate_data
 
 from . import graph_metric
 import sys
@@ -106,7 +107,7 @@ class pySETree():
 
         self.aff_m = aff_m
         self.knn_m = knn_m
-        self.G = nx.from_numpy_matrix(knn_m)
+        self.G = nx.from_numpy_array(knn_m)
 
         self.knn_graph_stats = self.graph_stats_init(knn_m)
         self.aff_graph_stats = self.graph_stats_init(aff_m)
@@ -857,7 +858,7 @@ class SEAT(AgglomerativeClustering):
         self.knn_m = knn_m
 
     def detect_outlier(self, X):
-        
+
         if self.outlier_detection == 'knn_neighbors':
             knn = NearestNeighbors(n_neighbors=self.n_neighbors)
             knn.fit(X)
@@ -878,7 +879,7 @@ class SEAT(AgglomerativeClustering):
         #print(len(self.outlier_index), len(self.inlier_index))
         if len(self.outlier_index) == 0:
             return labels
-        
+
         n = len(self.outlier_index) + len(self.inlier_index)
         new_labels = []
         inliner_i = 0
@@ -895,7 +896,7 @@ class SEAT(AgglomerativeClustering):
         if len(self.outlier_index) == 0:
             return label_df
         label_m = label_df.values.tolist()
-       
+
         n = len(self.outlier_index) + len(self.inlier_index)
         new_label_m = []
         inliner_i = 0
@@ -907,10 +908,10 @@ class SEAT(AgglomerativeClustering):
                 inliner_i += 1
         new_label_df = pd.DataFrame(new_label_m, columns = label_df.columns)
         return new_label_df
-        
+
     def fit(self, X, y=None):
 
-        X = self._validate_data(X, ensure_min_samples=2, estimator=self)
+        #X = validate_data(X, ensure_min_samples=2, estimator=self)
 
         if self.min_k is not None and self.min_k <= 0:
             raise ValueError("min_k should be an integer greater than 0."
@@ -931,19 +932,19 @@ class SEAT(AgglomerativeClustering):
 
         if self.outlier_detection not in [None, 'knn_neighbors']:
             raise ValueError("outlier_detection should be None, precomputed."
-                             " %s was provided." % str(self.outlier_detection))            
-            
+                             " %s was provided." % str(self.outlier_detection))
+
         if self.strategy not in ['bottom_up', 'top_down']:
             raise ValueError("affinity should be bottom_up, top_down."
                              " %s was provided." % str(self.strategy))
-            
+
         if self.verbose:
             print('fit', self.strategy)
-            
+
         X = self.detect_outlier(X)
         self.construct_affinity(X)
         self.graph_sparsification(X)
-        
+
 
         # build the tree
 
@@ -973,7 +974,7 @@ class SEAT(AgglomerativeClustering):
         self.se_scores = se_tree.se_scores
         self.delta_se_scores = se_tree.delta_se_scores
         self.optimal_k = se_tree.optimal_k
-        
+
         self.labels_ = self.insert_outliers(se_tree.optimal_clusters)
         self.Z_ = Z[:, :4]
         self.leaves_list = hierarchy.leaves_list(self.Z_)
